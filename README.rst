@@ -102,7 +102,7 @@ Finally, run the ``make_deb`` command:
 
    $ ./make_deb
    The package root directory is   : /home/ubuntu/source/foglamp-filter-scale/foglamp-filter-python27
-   The FogLAMP required version    : >=1.3
+   The FogLAMP required version    : >=1.4
    The package will be built in    : /home/ubuntu/source/foglamp-filter-scale/foglamp-filter-python27/packages/build
    The architecture is set as      : x86_64
    The package name is             : foglamp-filter-python27-1.0.0-x86_64
