@@ -230,11 +230,6 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 		return NULL;
 	}
 
-	/**
-	 * We now pass the filter JSON configuration to the loaded module
-	 */
-	// Set configuration object	
-	PyObject* pConfig = PyDict_New();
 	// Whole configuration as it is
 	string filterConfiguration;
 
@@ -249,43 +244,66 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 		filterConfiguration = "{}";
 	}
 
-	// Add JSON configuration, as string, to "config" key
-	PyObject* pConfigObject = PyString_FromString(filterConfiguration.c_str());
-	PyDict_SetItemString(pConfig,
-			     "config",
-			     pConfigObject);
-	Py_CLEAR(pConfigObject);
-
 	/**
-	 * Call method set_filter_config(c)
-	 * This creates a global JSON configuration
-	 * which will be available when fitering data with "plugin_ingest"
-	 *
-	 * set_filter_config(config) returns 'True'
+	 * We now pass the filter JSON configuration to the loaded module
 	 */
-	PyObject* pSetConfig = PyObject_CallMethod(pModule,
-						   (char *)string(DEFAULT_FILTER_CONFIG_METHOD).c_str(),
-						   (char *)string("O").c_str(),
-						   pConfig);
-	// Check result
-	if (!pSetConfig ||
-	    !PyBool_Check(pSetConfig) ||
-	    !PyInt_AsLong(pSetConfig))
+	PyObject* pConfigFunc = PyObject_GetAttrString(pModule,
+						       (char *)string(DEFAULT_FILTER_CONFIG_METHOD).c_str());
+
+	// Check whether "set_filter_config" method exists
+	if (PyCallable_Check(pConfigFunc))
 	{
-		logErrorMessage();
+		// Set configuration object     
+		PyObject* pConfig = PyDict_New();
+		// Add JSON configuration, as string, to "config" key
+		PyObject* pConfigObject = PyString_FromString(filterConfiguration.c_str());
+		PyDict_SetItemString(pConfig,
+				     "config",
+				     pConfigObject);
+		Py_CLEAR(pConfigObject);
+		/**
+		 * Call method set_filter_config(c)
+		 * This creates a global JSON configuration
+		 * which will be available when fitering data with "plugin_ingest"
+		 *
+		 * set_filter_config(config) returns 'True'
+		 */
+		PyObject* pSetConfig = PyObject_CallFunctionObjArgs(pConfigFunc,
+								    // arg 1
+								    pConfig,
+								    // end of args
+								    NULL);
+		// Check result
+		if (!pSetConfig ||
+		    !PyBool_Check(pSetConfig) ||
+		    !PyInt_AsLong(pSetConfig))
+		{
+			logErrorMessage();
 
-		Py_CLEAR(pModule);
-		Py_CLEAR(pFunc);
+			Py_CLEAR(pModule);
+			Py_CLEAR(pFunc);
+			// Remove temp objects
+			Py_CLEAR(pConfig);
+			Py_CLEAR(pSetConfig);
+
+			// Remove func object
+			Py_CLEAR(pConfigFunc);
+
+			return NULL;
+		}
+
 		// Remove temp objects
-		Py_CLEAR(pConfig);
 		Py_CLEAR(pSetConfig);
-
-		return NULL;
+		Py_CLEAR(pConfig);
+	}
+	else
+	{
+		// Reset error if function is not present
+		PyErr_Clear();
 	}
 
-	// Remove temp objects
-	Py_CLEAR(pSetConfig);
-	Py_CLEAR(pConfig);
+	// Remove func object
+	Py_CLEAR(pConfigFunc);
 
 	// Return filter handle
 	return (PLUGIN_HANDLE)handle;
