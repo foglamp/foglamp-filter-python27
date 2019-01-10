@@ -60,22 +60,22 @@
 // Filter default configuration
 #define DEFAULT_CONFIG "{\"plugin\" : { \"description\" : \"Python 2.7 filter plugin\", " \
                        		"\"type\" : \"string\", " \
-				"\"readonly\", \"true\", " \
+				"\"readonly\": \"true\", " \
 				"\"default\" : \"" FILTER_NAME "\" }, " \
 			 "\"enable\": {\"description\": \"A switch that can be used to enable or disable execution of " \
 					 "the Python 2.7 filter.\", " \
 				"\"type\": \"boolean\", " \
-				"\"displayName\" : \"Enabled\", " \
+				"\"displayName\": \"Enabled\", " \
 				"\"default\": \"false\" }, " \
 			"\"config\" : {\"description\" : \"Python 2.7 filter configuration.\", " \
 				"\"type\" : \"JSON\", " \
 				"\"displayName\" : \"Configuration\", " \
-				"\"order\", \"1\", " \
-				"\"default\" : {}}, " \
+				"\"order\": \"1\", " \
+				"\"default\" : \"{}\"}, " \
 			"\"script\" : {\"description\" : \"Python 2.7 module to load.\", " \
 				"\"type\": \"script\", " \
 				"\"displayName\" : \"Python Script\", " \
-				"\"order\", \"2\", " \
+				"\"order\": \"2\", " \
 				"\"default\": \"""\"} }"
 using namespace std;
 
