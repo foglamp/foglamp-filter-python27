@@ -83,6 +83,12 @@ static PLUGIN_INFORMATION info = {
 	DEFAULT_CONFIG	          // Default plugin configuration
 };
 
+typedef struct
+{
+	Python27Filter	*handle;
+	std::string	configCatName;
+} FILTER_INFO;
+
 /**
  * Return the information about this plugin
  */
@@ -111,10 +117,13 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 			  OUTPUT_HANDLE *outHandle,
 			  OUTPUT_STREAM output)
 {
-	Python27Filter* pyFilter = new Python27Filter(FILTER_NAME,
-						  *config,
-						  outHandle,
-						  output);
+	FILTER_INFO *info = new FILTER_INFO;
+	info->handle = new Python27Filter(FILTER_NAME,
+						*config,
+						outHandle,
+						output);
+	info->configCatName = config->getName();
+	Python27Filter *pyFilter = info->handle;
 
 	// Check first we have a Python script to load
 	if (!pyFilter->setScriptName())
@@ -152,7 +161,7 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 	else
 	{
 		// Return filter handle
-		return (PLUGIN_HANDLE)pyFilter;
+		return (PLUGIN_HANDLE)info;
 	}
 }
 
@@ -168,7 +177,8 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 void plugin_ingest(PLUGIN_HANDLE *handle,
 		   READINGSET *readingSet)
 {
-	Python27Filter* filter = (Python27Filter *)handle;
+	FILTER_INFO *info = (FILTER_INFO *) handle;
+	Python27Filter *filter = info->handle;
 
 	// Protect against reconfiguration
 	filter->lock();
@@ -184,7 +194,13 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 
         // Get all the readings in the readingset
 	const vector<Reading *>& readings = ((ReadingSet *)readingSet)->getAllReadings();
-
+	for (vector<Reading *>::const_iterator elem = readings.begin();
+						      elem != readings.end();
+						      ++elem)
+	{
+		AssetTracker::getAssetTracker()->addAssetTrackingTuple(info->configCatName, (*elem)->getAssetName(), string("Filter"));
+	}
+	
 	/**
 	 * 1 - create a Python object (list of dicts) from input data
 	 * 2 - pass Python object to Python filter method
@@ -252,6 +268,14 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 			// - Set new readings with filtered/modified data
 			finalData = new ReadingSet(newReadings);
 
+			const vector<Reading *>& readings2 = finalData->getAllReadings();
+			for (vector<Reading *>::const_iterator elem = readings2.begin();
+								      elem != readings2.end();
+								      ++elem)
+			{
+				AssetTracker::getAssetTracker()->addAssetTrackingTuple(info->configCatName, (*elem)->getAssetName(), string("Filter"));
+			}
+
 			// - Remove newReadings pointer
 			delete newReadings;
 		}
@@ -274,7 +298,8 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
  */
 void plugin_shutdown(PLUGIN_HANDLE *handle)
 {
-	Python27Filter* filter = (Python27Filter *)handle;
+	FILTER_INFO *info = (FILTER_INFO *) handle;
+	Python27Filter* filter = info->handle;
 
 	// Decrement pModule reference count
 	Py_CLEAR(filter->m_pModule);
@@ -286,6 +311,8 @@ void plugin_shutdown(PLUGIN_HANDLE *handle)
 
 	// Free plugin handle object
 	delete filter;
+
+	delete info;
 }
 
 /**
@@ -296,7 +323,8 @@ void plugin_shutdown(PLUGIN_HANDLE *handle)
  */
 void plugin_reconfigure(PLUGIN_HANDLE *handle, const string& newConfig)
 {
-	Python27Filter* filter = (Python27Filter *)handle;
+	FILTER_INFO *info = (FILTER_INFO *) handle;
+	Python27Filter* filter = info->handle;
 	filter->reconfigure(newConfig);
 }
 
