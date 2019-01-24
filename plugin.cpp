@@ -19,7 +19,7 @@
 #include <filter.h>
 #include <reading_set.h>
 #include <utils.h>
-#incldue <version.h>
+#include <version.h>
 
 #include <Python.h>
 
