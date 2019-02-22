@@ -8,23 +8,17 @@
  * Author: Massimiliano Pinto
  */
 
-#include <plugin_api.h>
-#include <config_category.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <strings.h>
-#include <string>
-#include <iostream>
-#include <filter_plugin.h>
-#include <filter.h>
-#include <reading_set.h>
 #include <utils.h>
+#include <version.h>
 
-#include <Python.h>
+#include "python27.h"
 
 // Relative path to FOGLAMP_DATA
-#define PYTHON_FILTERS_PATH "/filters"
+#define PYTHON_FILTERS_PATH "/scripts"
 #define FILTER_NAME "python27"
+#define PYTHON_SCRIPT_METHOD_PREFIX "_script_"
+#define PYTHON_SCRIPT_FILENAME_EXTENSION ".py"
+#define SCRIPT_CONFIG_ITEM_NAME "script"
 
 /**
  * The Python 2.7 script module to load is set in
@@ -52,35 +46,27 @@
  *   It returns a dict with filtered input data
  */
 
-// Filter configuration method
-#define DEFAULT_FILTER_CONFIG_METHOD "set_filter_config"
 // Filter default configuration
 #define DEFAULT_CONFIG "{\"plugin\" : { \"description\" : \"Python 2.7 filter plugin\", " \
                        		"\"type\" : \"string\", " \
+				"\"readonly\": \"true\", " \
 				"\"default\" : \"" FILTER_NAME "\" }, " \
 			 "\"enable\": {\"description\": \"A switch that can be used to enable or disable execution of " \
 					 "the Python 2.7 filter.\", " \
 				"\"type\": \"boolean\", " \
+				"\"displayName\": \"Enabled\", " \
 				"\"default\": \"false\" }, " \
 			"\"config\" : {\"description\" : \"Python 2.7 filter configuration.\", " \
 				"\"type\" : \"JSON\", " \
-				"\"default\" : {}}, " \
+				"\"displayName\" : \"Configuration\", " \
+				"\"order\": \"1\", " \
+				"\"default\" : \"{}\"}, " \
 			"\"script\" : {\"description\" : \"Python 2.7 module to load.\", " \
-				"\"type\": \"string\", " \
+				"\"type\": \"script\", " \
+				"\"displayName\" : \"Python Script\", " \
+				"\"order\": \"2\", " \
 				"\"default\": \"""\"} }"
 using namespace std;
-
-// Python 2.7 loaded filter module handle
-static PyObject* pModule = NULL;
-// Python 2.7 callable method handle
-static PyObject* pFunc = NULL;
-// Python 2.7  script name
-static string pythonScript;
-
-// Filtering methods
-static PyObject* createReadingsList(const vector<Reading *>& readings);
-static vector<Reading *>* getFilteredReadings(PyObject* filteredData);
-static void logErrorMessage();
 
 /**
  * The Filter plugin interface
@@ -91,12 +77,18 @@ extern "C" {
  */
 static PLUGIN_INFORMATION info = {
         FILTER_NAME,              // Name
-        "1.0.0",                  // Version
+        VERSION,                  // Version
         0,                        // Flags
         PLUGIN_TYPE_FILTER,       // Type
         "1.0.0",                  // Interface version
 	DEFAULT_CONFIG	          // Default plugin configuration
 };
+
+typedef struct
+{
+	Python27Filter	*handle;
+	std::string	configCatName;
+} FILTER_INFO;
 
 /**
  * Return the information about this plugin
@@ -126,169 +118,52 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 			  OUTPUT_HANDLE *outHandle,
 			  OUTPUT_STREAM output)
 {
-	FogLampFilter* handle = new FogLampFilter(FILTER_NAME,
-						  *config,
-						  outHandle,
-						  output);
+	FILTER_INFO *info = new FILTER_INFO;
+	info->handle = new Python27Filter(FILTER_NAME,
+						*config,
+						outHandle,
+						output);
+	info->configCatName = config->getName();
+	Python27Filter *pyFilter = info->handle;
 
-	// Check whether we have a Python 2.7 script file to import
-	if (handle->getConfig().itemExists("script"))
+	// Check first we have a Python script to load
+	if (!pyFilter->setScriptName())
 	{
-		pythonScript = handle->getConfig().getValue("script");
-	}
-	else
-	{
-		pythonScript = string("");
-	}
-	if (pythonScript.empty())
-	{
-		// Do nothing
-		Logger::getLogger()->warn("Filter '%s', "
-					  "called without a Python 2.7 script. "
-					  "Check 'script' item in '%s' configuration. "
-					  "Filter has been disabled.",
-					  FILTER_NAME,
-					  handle->getConfig().getName().c_str());
-
 		// Force disable
-		handle->disableFilter();
+		pyFilter->disableFilter();
 
 		// Return filter handle
-		return (PLUGIN_HANDLE)handle;
+		return (PLUGIN_HANDLE)pyFilter;
 	}
-		
+
 	// Embedded Python 2.7 program name
         Py_SetProgramName((char *)config->getName().c_str());
 	// Embedded Python 2.7 initialisation
         Py_Initialize();
 
-	// Get FogLAMP Data dir
-	string filtersPath = getDataDir();
-	// Add filters dir
-	filtersPath += PYTHON_FILTERS_PATH;
+	// Pass FogLAMP Data dir
+	pyFilter->setFiltersPath(getDataDir());
 
 	// Set Python path for embedded Python 2.7
 	// Get current sys.path. borrowed reference
 	PyObject* sysPath = PySys_GetObject((char *)string("path").c_str());
 	// Add FogLAMP python filters path
-	PyObject* pPath = PyString_FromString((char *)filtersPath.c_str());
+	PyObject* pPath = PyString_FromString((char *)pyFilter->getFiltersPath().c_str());
 	PyList_Insert(sysPath, 0, pPath);
 	// Remove temp object
 	Py_CLEAR(pPath);
 
-	// Set scrip tname
-	PyObject* pName = PyString_FromString(pythonScript.c_str());
-
-	// Import script as module
-	pModule = PyImport_Import(pName);
-
-	// Delete pName reference
-	Py_CLEAR(pName);
-
-	// Check whether the Python module has been imported
-	if (!pModule)
+	// Configure filter
+	if (!pyFilter->configure())
 	{
-		// Failure
-		if (PyErr_Occurred())
-		{
-			logErrorMessage();
-		}
-		Logger::getLogger()->fatal("Filter '%s' (%s), cannot import Python 2.7 script "
-					   "'%s.py' from '%s'",
-					   FILTER_NAME,
-					   handle->getConfig().getName().c_str(),
-					   pythonScript.c_str(),
-					   filtersPath.c_str());
-
 		// This will abort the filter pipeline set up
 		return NULL;
-	}
-
-	// NOTE:
-	// Filter method to call is the same as filter name
-	// Fetch filter method in loaded object
-	pFunc = PyObject_GetAttrString(pModule, pythonScript.c_str());
-
-	if (!PyCallable_Check(pFunc))
-        {
-		// Failure
-		if (PyErr_Occurred())
-		{
-			logErrorMessage();
-		}
-
-		Logger::getLogger()->fatal("Filter %s (%s) error: cannot find Python 2.7 method "
-					   "'%s' in loaded module '%s.py'",
-					   FILTER_NAME,
-					   handle->getConfig().getName().c_str(),
-					   pythonScript.c_str(),
-					   pythonScript.c_str());
-		Py_CLEAR(pModule);
-		Py_CLEAR(pFunc);
-
-		// This will abort the filter pipeline set up
-		return NULL;
-	}
-
-	/**
-	 * We now pass the filter JSON configuration to the loaded module
-	 */
-	// Set configuration object	
-	PyObject* pConfig = PyDict_New();
-	// Whole configuration as it is
-	string filterConfiguration;
-
-	// Get 'config' filter category configuration
-	if (handle->getConfig().itemExists("config"))
-	{
-		filterConfiguration = handle->getConfig().getValue("config");
 	}
 	else
 	{
-		// Set empty object
-		filterConfiguration = "{}";
+		// Return filter handle
+		return (PLUGIN_HANDLE)info;
 	}
-
-	// Add JSON configuration, as string, to "config" key
-	PyObject* pConfigObject = PyString_FromString(filterConfiguration.c_str());
-	PyDict_SetItemString(pConfig,
-			     "config",
-			     pConfigObject);
-	Py_CLEAR(pConfigObject);
-
-	/**
-	 * Call method set_filter_config(c)
-	 * This creates a global JSON configuration
-	 * which will be available when fitering data with "plugin_ingest"
-	 *
-	 * set_filter_config(config) returns 'True'
-	 */
-	PyObject* pSetConfig = PyObject_CallMethod(pModule,
-						   (char *)string(DEFAULT_FILTER_CONFIG_METHOD).c_str(),
-						   (char *)string("O").c_str(),
-						   pConfig);
-	// Check result
-	if (!pSetConfig ||
-	    !PyBool_Check(pSetConfig) ||
-	    !PyInt_AsLong(pSetConfig))
-	{
-		logErrorMessage();
-
-		Py_CLEAR(pModule);
-		Py_CLEAR(pFunc);
-		// Remove temp objects
-		Py_CLEAR(pConfig);
-		Py_CLEAR(pSetConfig);
-
-		return NULL;
-	}
-
-	// Remove temp objects
-	Py_CLEAR(pSetConfig);
-	Py_CLEAR(pConfig);
-
-	// Return filter handle
-	return (PLUGIN_HANDLE)handle;
 }
 
 /**
@@ -303,7 +178,13 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 void plugin_ingest(PLUGIN_HANDLE *handle,
 		   READINGSET *readingSet)
 {
-	FogLampFilter* filter = (FogLampFilter *)handle;
+	FILTER_INFO *info = (FILTER_INFO *) handle;
+	Python27Filter *filter = info->handle;
+
+	// Protect against reconfiguration
+	filter->lock();
+	bool enabled = filter->isEnabled();
+	filter->unlock();
 
 	if (!filter->isEnabled())
 	{
@@ -314,7 +195,13 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 
         // Get all the readings in the readingset
 	const vector<Reading *>& readings = ((ReadingSet *)readingSet)->getAllReadings();
-
+	for (vector<Reading *>::const_iterator elem = readings.begin();
+						      elem != readings.end();
+						      ++elem)
+	{
+		AssetTracker::getAssetTracker()->addAssetTrackingTuple(info->configCatName, (*elem)->getAssetName(), string("Filter"));
+	}
+	
 	/**
 	 * 1 - create a Python object (list of dicts) from input data
 	 * 2 - pass Python object to Python filter method
@@ -323,7 +210,7 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 	 */
 
 	// - 1 - Create Python list of dicts as input to the filter
-	PyObject* readingsList = createReadingsList(readings);
+	PyObject* readingsList = filter->createReadingsList(readings);
 
 	// Check for errors
 	if (!readingsList)
@@ -333,7 +220,7 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 					   "create filter data error, action: %s",
 					   FILTER_NAME,
 					   filter->getConfig().getName().c_str(),
-					   pythonScript.c_str(),
+					   filter->m_pythonScript.c_str(),
 					  "pass unfiltered data onwards");
 
 		// Pass data set to next filter and return
@@ -342,7 +229,7 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 	}
 
 	// - 2 - Call Python method passing an object
-	PyObject* pReturn = PyObject_CallFunction(pFunc,
+	PyObject* pReturn = PyObject_CallFunction(filter->m_pFunc,
 						  (char *)string("O").c_str(),
 						  readingsList);
 
@@ -359,11 +246,11 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 					   "filter error, action: %s",
 					   FILTER_NAME,
 					   filter->getConfig().getName().c_str(),
-					   pythonScript.c_str(),
+					   filter->m_pythonScript.c_str(),
 					   "pass unfiltered data onwards");
 
 		// Errors while getting result object
-		logErrorMessage();
+		filter->logErrorMessage();
 
 		// Filter did nothing: just pass input data
 		finalData = (ReadingSet *)readingSet;
@@ -371,7 +258,7 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 	else
 	{
 		// Get new set of readings from Python filter
-		vector<Reading *>* newReadings = getFilteredReadings(pReturn);
+		vector<Reading *>* newReadings = filter->getFilteredReadings(pReturn);
 		if (newReadings)
 		{
 			// Filter success
@@ -381,6 +268,14 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 
 			// - Set new readings with filtered/modified data
 			finalData = new ReadingSet(newReadings);
+
+			const vector<Reading *>& readings2 = finalData->getAllReadings();
+			for (vector<Reading *>::const_iterator elem = readings2.begin();
+								      elem != readings2.end();
+								      ++elem)
+			{
+				AssetTracker::getAssetTracker()->addAssetTrackingTuple(info->configCatName, (*elem)->getAssetName(), string("Filter"));
+			}
 
 			// - Remove newReadings pointer
 			delete newReadings;
@@ -404,236 +299,35 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
  */
 void plugin_shutdown(PLUGIN_HANDLE *handle)
 {
-	FogLampFilter* data = (FogLampFilter *)handle;
-	delete data;
+	FILTER_INFO *info = (FILTER_INFO *) handle;
+	Python27Filter* filter = info->handle;
 
 	// Decrement pModule reference count
-	Py_CLEAR(pModule);
+	Py_CLEAR(filter->m_pModule);
 	// Decrement pFunc reference count
-	Py_CLEAR(pFunc);
+	Py_CLEAR(filter->m_pFunc);
 
 	// Cleanup Python 2.7
 	Py_Finalize();
+
+	// Free plugin handle object
+	delete filter;
+
+	delete info;
+}
+
+/**
+ * Apply filter plugin reconfiguration
+ *
+ * @param    handle	The plugin handle returned from plugin_init
+ * @param    newConfig	The new configuration to apply.
+ */
+void plugin_reconfigure(PLUGIN_HANDLE *handle, const string& newConfig)
+{
+	FILTER_INFO *info = (FILTER_INFO *) handle;
+	Python27Filter* filter = info->handle;
+	filter->reconfigure(newConfig);
 }
 
 // End of extern "C"
 };
-
-/**
- * Create a Python 2.7 object (list of dicts)
- * to be passed to Python 2.7 loaded filter
- *
- * @param readings	The input readings
- * @return		PyObject pointer (list of dicts)
- *			or NULL in case of errors
- */
-static PyObject* createReadingsList(const vector<Reading *>& readings)
-{
-	// TODO add checks to all PyList_XYZ methods
-	PyObject* readingsList = PyList_New(0);
-
-	// Iterate the input readings
-	for (vector<Reading *>::const_iterator elem = readings.begin();
-                                                      elem != readings.end();
-                                                      ++elem)
-	{
-		// Create an object (dict) with 'asset_code' and 'readings' key
-		PyObject* readingObject = PyDict_New();
-
-		// Create object (dict) for reading Datapoints:
-		// this will be added as vale for key 'readings'
-		PyObject* newDataPoints = PyDict_New();
-
-		// Get all datapoints
-		std::vector<Datapoint *>& dataPoints = (*elem)->getReadingData();
-		for (auto it = dataPoints.begin(); it != dataPoints.end(); ++it)
-		{
-			PyObject* value;
-			DatapointValue::dataTagType dataType = (*it)->getData().getType();
-
-			if (dataType == DatapointValue::dataTagType::T_INTEGER)
-			{
-				value = PyInt_FromLong((*it)->getData().toInt());
-			}
-			else if (dataType == DatapointValue::dataTagType::T_FLOAT)
-			{
-				value = PyFloat_FromDouble((*it)->getData().toDouble());
-			}
-			else
-			{
-				value = PyString_FromString((*it)->getData().toString().c_str());
-			}
-
-			// Add Datapoint: key and value
-			PyDict_SetItemString(newDataPoints,
-					     (*it)->getName().c_str(),
-					     value);
-			Py_CLEAR(value);
-		}
-
-
-		PyObject* assetVal = PyString_FromString((*elem)->getAssetName().c_str());
-		PyDict_SetItemString(readingObject,
-				     "asset_code",
-				     assetVal);
-
-		PyDict_SetItemString(readingObject,
-				     "reading",
-				     newDataPoints);
-
-		// Add new object to the list
-		PyList_Append(readingsList, readingObject);
-
-		Py_CLEAR(assetVal);
-		Py_CLEAR(newDataPoints);
-		Py_CLEAR(readingObject);
-	}
-
-	// Return pointer of new allocated list
-	return readingsList;
-}
-
-/**
- * Get the vector of filtered readings from Python 2.7 script
- *
- * @param filteredData	Python 2.7 Object (list of dicts)
- * @return		Pointer to a new allocated vector<Reading *>
- *			or NULL in case of errors
- * Note:
- * new readings have:
- * - new timestamps
- * - new UUID
- */
-static vector<Reading *>* getFilteredReadings(PyObject* filteredData)
-{
-	// Create result set
-	vector<Reading *>* newReadings = new vector<Reading *>();
-
-	// Iterate filtered data in the list
-	for (int i = 0; i < PyList_Size(filteredData); i++)
-	{
-		// Get list item: borrowed reference.
-		PyObject* element = PyList_GetItem(filteredData, i);
-		if (!element)
-		{
-			// Failure
-			if (PyErr_Occurred())
-			{
-				logErrorMessage();
-			}
-			delete newReadings;
-
-			return NULL;
-		}
-
-		// Get 'asset_code' value: borrowed reference.
-		PyObject* assetCode = PyDict_GetItemString(element,
-							   "asset_code");
-		// Get 'reading' value: borrowed reference.
-		PyObject* reading = PyDict_GetItemString(element,
-							 "reading");
-
-		// Keys not found or reading is not a dict
-		if (!assetCode ||
-		    !reading ||
-		    !PyDict_Check(reading))
-		{
-			// Failure
-			if (PyErr_Occurred())
-			{
-				logErrorMessage();
-			}
-			delete newReadings;
-
-			return NULL;
-		}
-
-		// Fetch all Datapoins in 'reading' dict			
-		PyObject *dKey, *dValue;
-		Py_ssize_t dPos = 0;
-		Reading* newReading = NULL;
-
-		// Fetch all Datapoins in 'reading' dict
-		// dKey and dValue are borrowed references
-		while (PyDict_Next(reading, &dPos, &dKey, &dValue))
-		{
-			DatapointValue* dataPoint;
-			if (PyInt_Check(dValue) || PyLong_Check(dValue))
-			{
-				dataPoint = new DatapointValue((long)PyInt_AsUnsignedLongMask(dValue));
-			}
-			else if (PyFloat_Check(dValue))
-			{
-				dataPoint = new DatapointValue(PyFloat_AS_DOUBLE(dValue));
-			}
-			else if (PyString_Check(dValue))
-			{
-				dataPoint = new DatapointValue(string(PyString_AsString(dValue)));
-			}
-			else
-			{
-				delete newReadings;
-				delete dataPoint;
-
-				return NULL;
-			}
-
-			// Add / Update the new Reading data			
-			if (newReading == NULL)
-			{
-				newReading = new Reading(PyString_AsString(assetCode),
-							 new Datapoint(PyString_AsString(dKey),
-								       *dataPoint));
-			}
-			else
-			{
-				newReading->addDatapoint(new Datapoint(PyString_AsString(dKey),
-								       *dataPoint));
-			}
-
-			// Remove temp objects
-			delete dataPoint;
-		}
-
-		// Add the new reading to result vector
-		newReadings->push_back(newReading);
-	}
-
-	return newReadings;
-}
-
-/**
- * Log current Python 2.7 error message
- *
- */
-static void logErrorMessage()
-{
-	//Get error message
-	PyObject *pType, *pValue, *pTraceback;
-	PyErr_Fetch(&pType, &pValue, &pTraceback);
-
-	// NOTE from :
-	// https://docs.python.org/2/c-api/exceptions.html
-	//
-	// The value and traceback object may be NULL
-	// even when the type object is not.	
-	const char* pErrorMessage = pValue ?
-				    PyString_AsString(pValue) :
-				    "no error description.";
-
-	Logger::getLogger()->fatal("Filter '%s', script "
-				   "'%s': Error '%s'",
-				   FILTER_NAME,
-				   pythonScript.c_str(),
-				   pErrorMessage ?
-				   pErrorMessage :
-				   "no description");
-
-	// Reset error
-	PyErr_Clear();
-
-	// Remove references
-	Py_CLEAR(pType);
-	Py_CLEAR(pValue);
-	Py_CLEAR(pTraceback);
-}
