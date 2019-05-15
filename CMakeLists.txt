@@ -35,24 +35,8 @@ set(NEEDED_FOGLAMP_LIBS common-lib plugins-common-lib filters-common-lib)
 file(GLOB SOURCES *.cpp)
 
 # Find Python.h header file
-find_path(Python2.7_INCLUDE NAMES Python.h PATHS /usr/include/python2.7 /usr/include/python27)
-if (NOT Python2.7_INCLUDE)
-	message(WARNING
-	" Python 2.7 header file 'Python.h' not found in /usr/include. \n"
-	" Target '${PROJECT_NAME}' filter is not built.")
-	return()
-else()
-	message(STATUS "Found Python 2.7 header file 'Python.h' in " ${Python2.7_INCLUDE})
-endif()
-
-# Find Python 2.7 library
-find_library(FoundPython_2.7 NAMES python2.7 python27)
-if (NOT FoundPython_2.7)
-	message(ERROR "Python 2.7 library not found.")
-	return()
-else()
-	message(STATUS "Found Python 2.7 library in " ${FoundPython_2.7})
-endif()
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(Python2.7 REQUIRED python2)
 
 # Find FogLAMP includes and libs, by including FindFogLAMP.cmak file
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR})
@@ -83,7 +67,9 @@ else()
 endif()
 
 # Add Python 2.7 header files
-include_directories(${Python2.7_INCLUDE})
+include_directories(${Python2.7_INCLUDE_DIRS})
+
+link_directories(${Python2.7_LIBRARY_DIRS})
 
 # Add FogLAMP lib path
 link_directories(${FOGLAMP_LIB_DIRS})
