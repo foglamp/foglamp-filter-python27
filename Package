@@ -1,7 +1,7 @@
 # A set of variables that define how we package this repository
 #
 plugin_name=python27
-plugin_type=notify
+plugin_type=filter
 plugin_install_dirname=python27
 
 # Now build up the runtime requirements list. This has 3 components
