@@ -66,6 +66,9 @@
 				"\"displayName\" : \"Python Script\", " \
 				"\"order\": \"2\", " \
 				"\"default\": \"""\"} }"
+
+bool pythonInitialised = false;
+
 using namespace std;
 
 /**
@@ -126,23 +129,22 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 	info->configCatName = config->getName();
 	Python27Filter *pyFilter = info->handle;
 
-	// Check first we have a Python script to load
-	if (!pyFilter->setScriptName())
-	{
-		// Force disable
-		pyFilter->disableFilter();
-
-		// Return filter handle
-		return (PLUGIN_HANDLE)pyFilter;
-	}
-
 	// Embedded Python 2.7 program name
-        Py_SetProgramName((char *)config->getName().c_str());
+	Py_SetProgramName((char *)config->getName().c_str());
+
 	// Embedded Python 2.7 initialisation
-        Py_Initialize();
+	if (!Py_IsInitialized())
+	{
+		Py_Initialize();
+		PyEval_InitThreads(); // Initialize and acquire the global interpreter lock (GIL)
+		PyThreadState* save = PyEval_SaveThread(); // release GIL
+		pythonInitialised = true;
+	}
 
 	// Pass FogLAMP Data dir
 	pyFilter->setFiltersPath(getDataDir());
+
+	PyGILState_STATE state = PyGILState_Ensure(); // acquire GIL
 
 	// Set Python path for embedded Python 2.7
 	// Get current sys.path. borrowed reference
@@ -153,14 +155,33 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 	// Remove temp object
 	Py_CLEAR(pPath);
 
+	// Check first we have a Python script to load
+	if (!pyFilter->setScriptName())
+	{
+		// Force disable
+		pyFilter->disableFilter();
+
+		PyGILState_Release(state);
+
+		// Return filter handle
+		return (PLUGIN_HANDLE)info;
+	}
+
 	// Configure filter
 	if (!pyFilter->configure())
 	{
+		if (pythonInitialised)
+		{
+			pythonInitialised = false;
+		}
+
+		PyGILState_Release(state);
 		// This will abort the filter pipeline set up
 		return NULL;
 	}
 	else
 	{
+		PyGILState_Release(state);
 		// Return filter handle
 		return (PLUGIN_HANDLE)info;
 	}
@@ -209,6 +230,8 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 	 * 4 - Remove old data and pass new data set onwards
 	 */
 
+	PyGILState_STATE state = PyGILState_Ensure();
+
 	// - 1 - Create Python list of dicts as input to the filter
 	PyObject* readingsList = filter->createReadingsList(readings);
 
@@ -225,6 +248,7 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 
 		// Pass data set to next filter and return
 		filter->m_func(filter->m_data, readingSet);
+		PyGILState_Release(state);
 		return;
 	}
 
@@ -290,6 +314,8 @@ void plugin_ingest(PLUGIN_HANDLE *handle,
 		Py_CLEAR(pReturn);
 	}
 
+	PyGILState_Release(state);
+
 	// - 4 - Pass (new or old) data set to next filter
 	filter->m_func(filter->m_data, finalData);
 }
@@ -302,13 +328,19 @@ void plugin_shutdown(PLUGIN_HANDLE *handle)
 	FILTER_INFO *info = (FILTER_INFO *) handle;
 	Python27Filter* filter = info->handle;
 
+	PyGILState_STATE state = PyGILState_Ensure();
+
 	// Decrement pModule reference count
 	Py_CLEAR(filter->m_pModule);
 	// Decrement pFunc reference count
 	Py_CLEAR(filter->m_pFunc);
 
 	// Cleanup Python 2.7
-	Py_Finalize();
+	if (pythonInitialised)
+	{
+		pythonInitialised = false;
+		Py_Finalize();
+	}
 
 	// Free plugin handle object
 	delete filter;
@@ -326,7 +358,11 @@ void plugin_reconfigure(PLUGIN_HANDLE *handle, const string& newConfig)
 {
 	FILTER_INFO *info = (FILTER_INFO *) handle;
 	Python27Filter* filter = info->handle;
+
+	PyGILState_STATE state = PyGILState_Ensure();
 	filter->reconfigure(newConfig);
+
+	PyGILState_Release(state);
 }
 
 // End of extern "C"

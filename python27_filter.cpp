@@ -496,7 +496,7 @@ bool Python27Filter::configure()
  */
 bool Python27Filter::setScriptName()
 {
-	// Check whether we have a Python 3.5 script file to import
+	// Check whether we have a Python 2.7 script file to import
 	if (this->getConfig().itemExists(SCRIPT_CONFIG_ITEM_NAME))
 	{
 		try
@@ -523,7 +523,7 @@ bool Python27Filter::setScriptName()
 	{
 		// Do nothing
 		Logger::getLogger()->warn("Filter '%s', "
-					  "called without a Python 3.5 script. "
+					  "called without a Python 2.7 script. "
 					  "Check 'script' item in '%s' configuration. "
 					  "Filter has been disabled.",
 					  this->getName().c_str(),
