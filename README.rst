@@ -7,6 +7,8 @@ embedded interpreter.
 
 NOTE:
 Python2.7 development package is required.
+This plugin works on Ubuntu 16, Ubuntu 18 and Raspbian on Raspberry Pi3.
+It's currently not working on CentOS 7 and RedHat 7 
 
 Build
 -----
