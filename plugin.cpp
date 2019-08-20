@@ -59,12 +59,12 @@
 			"\"config\" : {\"description\" : \"Python 2.7 filter configuration.\", " \
 				"\"type\" : \"JSON\", " \
 				"\"displayName\" : \"Configuration\", " \
-				"\"order\": \"1\", " \
+				"\"order\": \"2\", " \
 				"\"default\" : \"{}\"}, " \
 			"\"script\" : {\"description\" : \"Python 2.7 module to load.\", " \
 				"\"type\": \"script\", " \
 				"\"displayName\" : \"Python Script\", " \
-				"\"order\": \"2\", " \
+				"\"order\": \"1\", " \
 				"\"default\": \"""\"} }"
 
 bool pythonInitialised = false;
