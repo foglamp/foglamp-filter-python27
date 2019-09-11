@@ -1,5 +1,5 @@
 /*
- * FogLAMP "Python 2.7" filter plugin.
+ * Fledge "Python 2.7" filter plugin.
  *
  * Copyright (c) 2018 Dianomic Systems
  *
@@ -13,7 +13,7 @@
 
 #include "python27.h"
 
-// Relative path to FOGLAMP_DATA
+// Relative path to FLEDGE_DATA
 #define PYTHON_FILTERS_PATH "/scripts"
 #define FILTER_NAME "python27"
 #define PYTHON_SCRIPT_METHOD_PREFIX "_script_"
@@ -26,7 +26,7 @@
  *
  * Example:
  * if filename is 'readings_filter.py', just set 'readings_filter'
- * via FogLAMP configuration managewr
+ * via Fledge configuration managewr
  *
  * Note:
  * Python 2.7 filter code needs two methods.
@@ -141,7 +141,7 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 		pythonInitialised = true;
 	}
 
-	// Pass FogLAMP Data dir
+	// Pass Fledge Data dir
 	pyFilter->setFiltersPath(getDataDir());
 
 	PyGILState_STATE state = PyGILState_Ensure(); // acquire GIL
@@ -149,7 +149,7 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* config,
 	// Set Python path for embedded Python 2.7
 	// Get current sys.path. borrowed reference
 	PyObject* sysPath = PySys_GetObject((char *)string("path").c_str());
-	// Add FogLAMP python filters path
+	// Add Fledge python filters path
 	PyObject* pPath = PyString_FromString((char *)pyFilter->getFiltersPath().c_str());
 	PyList_Insert(sysPath, 0, pPath);
 	// Remove temp object

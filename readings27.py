@@ -1,5 +1,5 @@
 """
-FogLAMP filtering fro readings data
+Fledge filtering fro readings data
 """
 
 __author__ = "Massimiliano Pinto"

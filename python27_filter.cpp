@@ -1,5 +1,5 @@
 /*
- * FogLAMP "Python 2.7" filter plugin.
+ * Fledge "Python 2.7" filter plugin.
  *
  * Copyright (c) 2018 Dianomic Systems
  *
@@ -16,7 +16,7 @@
 
 #include "python27.h"
 
-// Relative path to FOGLAMP_DATA
+// Relative path to FLEDGE_DATA
 #define PYTHON_SCRIPT_METHOD_PREFIX "_script_"
 #define PYTHON_SCRIPT_FILENAME_EXTENSION ".py"
 #define SCRIPT_CONFIG_ITEM_NAME "script"
@@ -30,7 +30,7 @@
  *
  * Example:
  * if filename is 'readings_filter.py', just set 'readings_filter'
- * via FogLAMP configuration managewr
+ * via Fledge configuration managewr
  *
  * Note:
  * Python 2.7 filter code needs two methods.
